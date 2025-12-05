@@ -1,5 +1,4 @@
 // Smart Retail Shelf - ESP32 + 4 ultrasonic sensors + 4 buttons + Blynk
-// Shows distance in cm on Blynk
 // Sends phone notifications when stock level changes
 
 // Blynk setup
@@ -16,37 +15,35 @@
 char ssid[] = "Wokwi-GUEST";
 char pass[] = "";
 
-// Pin numbers for the 4 ultrasonic sensors
-// Slot 1: TRIG 13, ECHO 12
-// Slot 2: TRIG 14, ECHO 27
-// Slot 3: TRIG 26, ECHO 25
-// Slot 4: TRIG 33, ECHO 32
+// Pins used for the 4 Retail Shelves (Ultrasonic Sensors)
+// Shelf 1: TRIG 13, ECHO 12
+// Shelf 2: TRIG 14, ECHO 27
+// Shelf 3: TRIG 26, ECHO 25
+// Shelf 4: TRIG 33, ECHO 32
 const int trigPins[4] = {13, 14, 26, 33};
 const int echoPins[4] = {12, 27, 25, 32};
 
 // Pin numbers for the 4 buttons (wrong product simulation)
-// Slot 1: 23, Slot 2: 22, Slot 3: 19, Slot 4: 18
+// Shelf Buttons Pins used (1,2,3,4) = (23,22,19,18)
 const int buttonPins[4] = {23, 22, 19, 18};
 
 // Stock levels used inside the code
-// 0 = Empty
-// 1 = Low
-// 2 = Moderate
-// 3 = Full
-// 4 = Wrong product
-int  slotState[4]    = {0, 0, 0, 0};      // current level for each shelf
-long slotDistance[4] = {0, 0, 0, 0};      // last distance in cm for each shelf
-int  lastState[4]    = {-1, -1, -1, -1};  // previous level for each shelf
-// Thresholds for stock levels (cm)
+// 0 = Empty : 1 = Low : 2 = Moderate : 3 = Full : 4 = Wrong product
+
+int  slotState[4]    = {0, 0, 0, 0};      // would store current level(status) for each shelf
+long slotDistance[4] = {0, 0, 0, 0};      // would store last distance in cm for each shelf
+int  lastState[4]    = {-1, -1, -1, -1};  // would be used for comparison: previous level for each shelf
+
+// Logic for the Thresholds for stock levels (cm)
 // distance <= fullMaxCm        -> Full
 // distance <= moderateMaxCm    -> Moderate
 // distance <= lowMaxCm         -> Low
 // distance > lowMaxCm          -> Empty
-int fullMaxCm     = 4;   // default Full max distance
-int moderateMaxCm = 8;   // default Moderate max distance
-int lowMaxCm      = 13;  // default Low max distance
+int fullMaxCm     = 4;   // (configured the same settings in the blynk too) default Full max distance
+int moderateMaxCm = 8;   // (configured the same settings in the blynk too) default Moderate max distance
+int lowMaxCm      = 13;  // (configured the same settings in the blynk too) default Low max distance
 
-// Read one ultrasonic sensor and return distance in cm
+// Reads the ultrasonic sensor readig for the shelf and return distance in cm
 long readDistanceCm(int trigPin, int echoPin) {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
@@ -56,13 +53,12 @@ long readDistanceCm(int trigPin, int echoPin) {
 
   long duration = pulseIn(echoPin, HIGH, 30000); //timeout for 30ms
 
-  // use float for better precision, then round
+  // using float for the precision reading, because ultrasonic sensor readings bugs out sometimes.
   float distanceFloat = duration * 0.034f / 2.0f;
   long distance = lround(distanceFloat);  // round to nearest cm
 
   return distance;
 }
-
 
 // Turn distance into stock level using thresholds from Blynk
 int classifyStockState(long d) 
@@ -86,7 +82,6 @@ int classifyStockState(long d)
   return 0;    // beyond lowMaxCm but still under 17 -> Empty
 }
 
-
 // Turn level number into text for Serial Monitor
 const char* stateToText(int s) {
   switch (s) {
@@ -99,67 +94,38 @@ const char* stateToText(int s) {
   }
 }
 
-// Blynk slider for Full max distance (V4)
-BLYNK_WRITE(V4) {
-  fullMaxCm = param.asInt();
-  Serial.print("FullMax from Blynk: ");
-  Serial.println(fullMaxCm);
-}
-
-// Blynk slider for Moderate max distance (V5)
-BLYNK_WRITE(V5) {
-  moderateMaxCm = param.asInt();
-  Serial.print("ModerateMax from Blynk: ");
-  Serial.println(moderateMaxCm);
-}
-
-// Blynk slider for Low max distance (V6)
-BLYNK_WRITE(V6) {
-  lowMaxCm = param.asInt();
-  Serial.print("LowMax from Blynk: ");
-  Serial.println(lowMaxCm);
-}
-
-
-
-// Read all 4 sensors and buttons, update distance and stock level
+// Read all 4 sensors and buttons, update distance and stock level, then decides final state
 void updateShelfStates() {
-  for (int i = 0; i < 4; i++) {
-    // read distance in cm for this shelf
+  for (int i = 0; i < 4; i++) 
+  {
+    // read distance in cm for the shelf
     long distance = readDistanceCm(trigPins[i], echoPins[i]);
     slotDistance[i] = distance;
 
-    // get level from distance (Empty, Low, Moderate, Full)
-    int baseState = classifyStockState(distance);
-
-    // read button for this shelf
-    int buttonVal = digitalRead(buttonPins[i]);
-
-    // start with level from distance
-    int finalState = baseState;
-
-    // if button is pressed (LOW), mark as Wrong product
-    if (buttonVal == LOW) {
+    int baseState = classifyStockState(distance); // get level from distance (Empty, Low, Moderate, Full)
+    int buttonVal = digitalRead(buttonPins[i]);   // reads button for the shelf
+    int finalState = baseState;                   // starts with level from distance
+    if (buttonVal == LOW)                         // if button is pressed (LOW), mark as Wrong product
+    {
       finalState = 4; // Wrong product
     }
 
     // save final level
     slotState[i] = finalState;
 
-    // print info to Serial Monitor
+    // Output for the Serial Monitor Display
     Serial.print("Shelf ");
     Serial.print(i + 1);
-    Serial.print("  Dist: ");
+    Serial.print("  Distance: ");
     Serial.print(distance);
-    Serial.print(" cm   Level: ");
+    Serial.print(" cm   Stock Level: ");
     Serial.println(stateToText(finalState));
   }
-
-  Serial.println("---------------------------");
+  Serial.println("---------------------------------------");
 }
 
-// Check for changes in level and send Blynk notifications
-// Uses Custom Event in Blynk with code: shelf_alert_testing and template: {{message}}
+// Compares and check for changes in current level and send Blynk notifications
+// All happens using Custom Events and Notifications from Blynk: shelf_alert_testing 
 void checkAndNotify() {
   for (int i = 0; i < 4; i++) {
     int currentState = slotState[i];
@@ -171,7 +137,7 @@ void checkAndNotify() {
       Serial.print(i + 1);
       Serial.print(": ");
       Serial.print(stateToText(lastState[i]));
-      Serial.print(" -> ");
+      Serial.print(" ---> ");
       Serial.println(stateToText(currentState));
 
       // update lastState so we remember the new level
@@ -180,32 +146,33 @@ void checkAndNotify() {
       // build message text for phone notification
       String msg;
 
-      if (currentState == 0) {       // Empty
-        msg = "Shelf " + String(i + 1) +
-              " is EMPTY (distance " + String(d) + " cm)";
+      if (currentState == 0)      //Empty 
+      {       
+        msg = "Shelf " + String(i + 1) + " is EMPTY (distance " + String(d) + " cm)";
       }
-      else if (currentState == 1) {  // Low
-        msg = "Shelf " + String(i + 1) +
-              " is LOW (distance " + String(d) + " cm)";
+      else if (currentState == 1) // Low
+      {  
+        msg = "Shelf " + String(i + 1) + " is LOW (distance " + String(d) + " cm)";
       }
-      else if (currentState == 2) {  // Moderate
-        msg = "Shelf " + String(i + 1) +
-              " is MODERATE (distance " + String(d) + " cm)";
+      else if (currentState == 2) // Moderate 
+      {  
+        msg = "Shelf " + String(i + 1) + " is MODERATE (distance " + String(d) + " cm)";
       }
-      else if (currentState == 3) {  // Full
-        msg = "Shelf " + String(i + 1) +
-              " is FULL (distance " + String(d) + " cm)";
+      else if (currentState == 3) // Full 
+      {  
+        msg = "Shelf " + String(i + 1) + " is FULL (distance " + String(d) + " cm)";
       }
-      else if (currentState == 4) {  // Wrong product
-        msg = "Shelf " + String(i + 1) +
-              " has WRONG PRODUCT (distance " + String(d) + " cm)";
+      else if (currentState == 4) // Wrong product 
+      {  
+        msg = "Shelf " + String(i + 1) + " has WRONG PRODUCT (distance " + String(d) + " cm)";
       } else {
         // unknown state, do not send anything
         msg = "";
       }
 
       // send notification only if we built a message
-      if (msg.length() > 0) {
+      if (msg.length() > 0) 
+      {
         Serial.print("Sending event: ");
         Serial.println(msg);
         Blynk.logEvent("shelf_alert_testing", msg);
@@ -214,7 +181,35 @@ void checkAndNotify() {
   }
 }
 
-// Send one line per shelf to V7..V10
+// Send cm distance readings staright to Blynk gauges V0, V1, V2, V3
+void sendToBlynk() {
+  for (int i = 0; i < 4; i++) {
+    Blynk.virtualWrite(V0 + i, slotDistance[i]);
+  }
+}
+
+// Blynk slider for Full maximum distance (V4)
+BLYNK_WRITE(V4) {
+  fullMaxCm = param.asInt();
+  Serial.print("FullMax from Blynk: ");
+  Serial.println(fullMaxCm);
+}
+
+// Blynk slider for Moderate maximum distance (V5)
+BLYNK_WRITE(V5) {
+  moderateMaxCm = param.asInt();
+  Serial.print("ModerateMax from Blynk: ");
+  Serial.println(moderateMaxCm);
+}
+
+// Blynk slider for Low maximum distance (V6)
+BLYNK_WRITE(V6) {
+  lowMaxCm = param.asInt();
+  Serial.print("LowMax from Blynk: ");
+  Serial.println(lowMaxCm);
+}
+
+// Send one line per shelf to V7..V10 (Text Widgets for Blynk)
 void sendStatusSummary() {
   for (int i = 0; i < 4; i++) {
     String line = "Shelf ";
@@ -225,45 +220,29 @@ void sendStatusSummary() {
     line += String(slotDistance[i]);
     line += " cm)";
 
-    // send to V7, V8, V9, V10
-    Blynk.virtualWrite(V7 + i, line);
+    Blynk.virtualWrite(V7 + i, line); // send to V7, V8, V9, V10
   }
 }
 
+void setup() { // setting the pin modes and connection with blynk
+  Serial.begin(115200); // 115200 is just the speed of Serial in bits per second, so for quicker communications
 
-
-// Send cm distances to Blynk gauges V0, V1, V2, V3
-void sendToBlynk() {
-  for (int i = 0; i < 4; i++) {
-    Blynk.virtualWrite(V0 + i, slotDistance[i]);
-  }
-}
-
-void setup() {
-  // 115200 is the speed of Serial in bits per second
-  // it must match the Serial Monitor setting
-  Serial.begin(115200);
-
-  // set pin modes for all sensors and buttons
+  // Setting up the pin modes for all sensors and buttons
   for (int i = 0; i < 4; i++) {
     pinMode(trigPins[i], OUTPUT);
     pinMode(echoPins[i], INPUT);
     pinMode(buttonPins[i], INPUT_PULLUP);
   }
-
-  Serial.println("Connecting to Blynk...");
+  Serial.println("Connecting to the Blynk now...");
   Blynk.begin(BLYNK_AUTH_TOKEN, ssid, pass);
 }
 
-void loop() {
-  // keep Blynk connection working
-  Blynk.run();
-
-  // main steps that run once per second
+void loop() { // Main steps that are constantly running, run blynk, take shelf readings, update them, send notifications and following updates.
+  Blynk.run();           // keep Blynk connection working
+                             
   updateShelfStates();   // read sensors and buttons
   checkAndNotify();      // send phone alerts on changes
-  sendToBlynk();         // send cm values to dashboard
-  sendStatusSummary();  // send text summary to V7
-
+  sendToBlynk();         // sends out the readings values to the blynk dashboard
+  sendStatusSummary();   // send text summary for Blynk Widgets
   delay(2500);           // wait 2.5 second
 }
